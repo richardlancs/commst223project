@@ -1,0 +1,17 @@
+{
+  "name": "referral-rush",
+  "version": "1.0.0",
+  "description": "The Referral Rush: a phone-based, facilitator-paced classroom game about referrals and hiring.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test --test-concurrency=1 test/"
+  },
+  "dependencies": {
+    "qrcode": "1.5.4"
+  }
+}
