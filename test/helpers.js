@@ -63,7 +63,7 @@ export async function advance(host, code, confirm = false) {
   return host.hostAct(code, 'advance', { from: s.body.phase, confirm });
 }
 
-// Builds a room with roles assigned and returns players keyed by their label.
+// Builds a room with roles assigned and returns players keyed by their employer label.
 export async function setupGame(base, n) {
   const { host, code } = await newRoom(base);
   const players = await joinPlayers(base, code, n);
@@ -73,11 +73,12 @@ export async function setupGame(base, n) {
   for (const p of players) {
     const s = await p.state(code);
     p.label = s.body.me.label;
-    p.role = s.body.me.role;
     byLabel[p.label] = p;
   }
   const hs = (await host.hostState(code)).body;
-  return { host, code, players, byLabel, hostState: hs, H: hs.setup.hires };
+  return { host, code, players, byLabel, hostState: hs, H: hs.setup.hires, labels: Object.keys(byLabel).sort((a, b) => a.length - b.length || a.localeCompare(b)) };
 }
 
-export const employeesOf = (hostState) => hostState.host.members.filter((m) => m.role === 'employee');
+export const bankOf = (hostState) => hostState.host.bank;
+export const groupOf = (g, label) => g.hostState.host.bank.filter((c) => c.group === label);
+export const notGroupOf = (g, label) => g.hostState.host.bank.filter((c) => c.group !== label);

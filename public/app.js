@@ -21,8 +21,8 @@ const S = {
   ui: {
     open: new Set(),
     code: '', name: '', claim: '', formError: '',
-    refEmployee: '', refTo: '', confirmRef: false,
-    confirmAccept: '',
+    refEmployee: '', confirmRef: false,
+    confirmAccept: '', confirmHire: '', refTargets: [],
     confirmAdvance: null, confirmReset: false,
     rejoin: {},
     arrivals: new Set(),
@@ -116,7 +116,7 @@ async function load() {
       announce(`Phase changed: ${S.data.phaseName}`);
       showMemo(S.data.phase, code);
       if (S.data.phase === 'results') confetti();
-      S.ui.confirmAdvance = null; S.ui.confirmRef = false; S.ui.confirmAccept = '';
+      S.ui.confirmAdvance = null; S.ui.confirmRef = false; S.ui.confirmHire = '';
     }
     lastPhase = S.data.phase;
   } catch (e) {
@@ -231,6 +231,29 @@ async function copy(text) {
 }
 
 
+// One confirmed slip can go to several employers: each is its own idempotent request.
+async function sendReferrals() {
+  if (S.busy) return;
+  const pick = S.data.employer?.group.find((g) => g.label === S.ui.refEmployee);
+  const targets = [...S.ui.refTargets];
+  if (!pick || !targets.length) return;
+  S.busy = true; render();
+  const ok = []; const failed = [];
+  for (const to of targets) {
+    try {
+      const r = await postAction(`/api/rooms/${S.route.code}/action`, { type: 'referral', requestId: requestId(), candidate: pick.label, to });
+      if (r.ok) ok.push(to);
+    } catch (e) { failed.push(`${to}: ${e.message}`); }
+  }
+  S.busy = false; S.ui.confirmRef = false; S.ui.refTargets = [];
+  if (ok.length) {
+    const msg = `Referral of ${pick.label} sent to ${ok.length === 1 ? `Employer ${ok[0]}` : `Employers ${ok.join(', ')}`}.`;
+    if (reducedMotion()) toast(msg); else { announce(msg); showFlash('referred', { from: S.data.me.label, to: ok.length === 1 ? `Employer ${ok[0]}` : `Employers ${ok.join(', ')}`, label: pick.label, name: pick.name }); }
+  }
+  if (failed.length) toast(`Not sent: ${failed.join('; ')}`, true);
+  await load();
+}
+
 // ---------- motion: memo, stamp flashes, confetti (presentation only) ----------
 const $fx = document.getElementById('fx');
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -263,10 +286,10 @@ function showFlash(kind, data) {
   el.className = 'flash';
   el.innerHTML = String(kind === 'referred'
     ? html`<div class="slip"><p class="slip-head">Recommendation, Employer ${data.from}</p>
-        <p class="slip-body"><strong>${data.label}, ${data.name}</strong> sent to Employer ${data.to}</p>
+        <p class="slip-body"><strong>${data.label}, ${data.name}</strong> sent to ${data.to}</p>
         <div class="stamp-spot"><span class="stamp thunk">REFERRED</span></div></div>`
-    : html`<div class="letter"><div class="letterhead"><span class="seal">${data.employer}</span><span><strong>Employer ${data.employer}</strong><span>Offer of employment</span></span></div>
-        <p>Welcome aboard. This position is yours.</p><div class="stamp-spot"><span class="stamp thunk">HIRED</span></div></div>`);
+    : html`<div class="letter"><div class="letterhead"><span class="seal">${data.employer}</span><span><strong>Employer ${data.employer}</strong><span>Hiring confirmed</span></span></div>
+        <p><strong>${data.label}, ${data.name}</strong> is joining your team.</p><div class="stamp-spot"><span class="stamp thunk">HIRED</span></div></div>`);
   $fx.appendChild(el);
   dismiss(el, 1900);
 }
@@ -298,7 +321,6 @@ const PHASE_SHORT = ['Lobby', 'Roles', 'Network', 'Hiring', 'Results', 'Debrief'
 const atLeast = (phase) => S.data && phaseOrder.indexOf(S.data.phase) >= phaseOrder.indexOf(phase);
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const disabled = (cond) => (cond ? new Raw('disabled') : '');
-const others = (label) => ['A', 'B', 'C'].filter((e) => e !== label);
 const employerName = (label) => S.data?.employers?.find((e) => e.label === label)?.name || '';
 const seenKey = () => `rr_seen_${S.data.code}_${S.data.round}`;
 
@@ -327,9 +349,9 @@ function summarySheet() {
   if (!r) return '';
   const max = Math.max(1, ...r.totals.map((t) => t.total));
   const tie = r.winners.length > 1;
-  const best = r.totals.find((t) => t.employer === r.winners[0]).total;
+  const best = r.totals[0]?.total ?? 0;
   const line = tie
-    ? `Employers ${r.winners.join(' and ')} tie with ${plural(best, 'point')} each.`
+    ? `Employers ${r.winners.join(', ').replace(/, ([^,]*)$/, ' and $1')} tie with ${plural(best, 'point')} each.`
     : `Employer ${r.winners[0]} wins with ${plural(best, 'point')}.`;
   return html`<section class="summary" aria-labelledby="sum-title">
     <div class="summary-head"><h2 id="sum-title">Hiring summary</h2><span class="count">Room ${S.data.code}</span></div>
@@ -337,7 +359,7 @@ function summarySheet() {
     <ul class="tally">${r.totals.map((t) => {
       const won = r.winners.includes(t.employer);
       return html`<li>${idchip(t.employer)}
-        <span class="stack tight"><span class="who">${employerName(t.employer)}, ${t.filled} of ${r.hires} hired</span>
+        <span class="stack tight"><span class="who">${t.name}, ${t.filled} of ${r.hires} hired</span>
           <span class="bar" aria-hidden="true"><i data-pct="${Math.round((t.total / max) * 100)}"></i></span>
           ${won ? html`<span><span class="stamp">${tie ? 'SHARED WIN' : 'TOP RECRUITER'}</span></span>` : ''}</span>
         <span class="total" aria-label="${t.total} points">${t.total}</span></li>`;
@@ -355,24 +377,20 @@ function discussionBlock() {
 function rosterFold() {
   const d = S.data;
   if (!d.employers) return '';
-  return fold('roster', 'Staff directory', plural(d.employers.length + d.employees.length, 'person', 'people'), html`
-    <h3>Employers</h3>
-    <ul class="files">${d.employers.map((e) => html`<li>${idchip(e.label)}<span class="grow name">${e.name}</span></li>`)}</ul>
-    <h3>Employees</h3>
-    <ul class="files">${d.employees.map((e) => html`<li>${idchip(e.label)}<span class="grow name">${e.name}</span>${e.hired ? html`<span class="tag tag-ok">Hired</span>` : ''}</li>`)}</ul>`);
+  return fold('roster', 'Staff directory', plural(d.employers.length, 'employer'), html`
+    <ul class="files">${d.employers.map((e) => html`<li>${idchip(e.label)}<span class="grow name">${e.name}</span>${d.me?.label === e.label ? html`<span class="tag tag-accent">You</span>` : ''}</li>`)}</ul>`);
 }
 
 function setupBox(setup) {
   if (!setup.ready) {
-    return html`<div class="notice notice-accent">${setup.players} signed in. ${plural(setup.needed, 'more player')} needed to start (minimum ${S.data.minPlayers}; 9 or more is best).</div>`;
+    return html`<div class="notice notice-accent">${setup.players} signed in. ${plural(setup.needed, 'more player')} needed to start (minimum ${S.data.minPlayers}; ${S.data.recommendedPlayers} or more is best).</div>`;
   }
   return html`<div class="limit-box">
-    <div><strong>${setup.players}</strong>players</div>
-    <div><strong>3</strong>employers</div>
-    <div><strong>${setup.employees}</strong>employees</div>
-    <div><strong>${setup.hires}</strong>${setup.hires === 1 ? 'hire' : 'hires'} and ${setup.hires === 1 ? 'referral' : 'referrals'} each</div>
-  </div>
-  <p class="small muted">Private information groups of ${setup.groupSizes.join(', ')}.</p>`;
+    <div><strong>${setup.players}</strong>${setup.players === 1 ? 'employer' : 'employers'}</div>
+    <div><strong>${setup.bank}</strong>candidates in the bank</div>
+    <div><strong>${setup.groupSize}</strong>in each private file</div>
+    <div><strong>${setup.hires}</strong>hires each</div>
+  </div>`;
 }
 
 function badgeList(names, mine) {
@@ -389,7 +407,7 @@ function landingView() {
     <section class="title-block">
       <h1 class="title"><span class="line">Referral</span><span class="stamped">Rush</span></h1>
       <p class="tagline">Great connections. Questionable motives.</p>
-      <p class="muted desc">A party game for one room and everyone's phones. Three employers are hiring. Everyone else wants the job. Who will you vouch for?</p>
+      <p class="muted desc">A party game for one room and everyone's phones. Everyone is hiring, everyone has inside information, and there aren't enough great candidates to go round. Who will you vouch for?</p>
     </section>
     <div class="clipboard">
       <div class="clipboard-sheet">
@@ -445,14 +463,13 @@ function joinView() {
   </div>`;
 }
 
-// ---------- player ----------
+// ---------- player (every player is an employer) ----------
 function phaseInstruction() {
-  const role = S.data.me?.role;
   return {
     lobby: 'Waiting for the host to assign roles.',
-    reveal: role === 'employer' ? 'Tap your badge, then study your private file.' : 'Tap your badge to see your role.',
-    networking: role === 'employer' ? 'Send your referrals and negotiate in person.' : 'Talk to employers and make your case in person.',
-    hiring: role === 'employer' ? 'Make job offers. Employees accept or decline.' : 'Answer your job offers.',
+    reveal: 'Tap your badge, then study your private file.',
+    networking: 'Trade referrals and negotiate in person.',
+    hiring: 'Hire the best candidates before someone else does.',
     results: 'The hiring results are in.',
     discussion: 'Debrief together.',
   }[S.data.phase];
@@ -460,11 +477,10 @@ function phaseInstruction() {
 
 function idCard(me, objective) {
   const seen = storage.get(seenKey()) === true;
-  const roleName = me.role === 'employer' ? 'Employer' : 'Employee';
   if (S.data.phase === 'reveal') {
     return html`<div class="badge-wrap">
       <button class="badge" data-act="flip" data-key="badge" aria-pressed="${seen ? 'true' : 'false'}"
-        aria-label="${seen ? `Your role: ${roleName} ${me.label}. ${objective}` : 'Tap to reveal your role'}">
+        aria-label="${seen ? `Your role: Employer ${me.label}. ${objective}` : 'Tap to reveal your role'}">
         <span class="badge-inner">
           <span class="badge-face badge-back" aria-hidden="${seen ? 'true' : 'false'}">
             <span class="seal">Referral Rush Inc.</span>
@@ -474,7 +490,7 @@ function idCard(me, objective) {
           <span class="badge-face badge-front" aria-hidden="${seen ? 'false' : 'true'}">
             <span class="band">Referral Rush Inc. staff ID</span>
             <span class="body">
-              <span class="badge-role">${roleName}</span>
+              <span class="badge-role">Employer</span>
               <span class="badge-label">${me.label}</span>
               <span class="badge-name">${me.name}</span>
             </span>
@@ -486,7 +502,7 @@ function idCard(me, objective) {
   }
   return html`<div class="id-strip">
     <span class="id-glyph" aria-hidden="true">${me.label}</span>
-    <span class="id-text"><strong>${roleName} ${me.label}</strong><span class="muted">${me.name}. ${objective}</span></span>
+    <span class="id-text"><strong>Employer ${me.label}</strong><span class="muted">${me.name}. ${objective}</span></span>
   </div>`;
 }
 
@@ -495,10 +511,10 @@ function employerHome() {
   const parts = [idCard(me, 'Goal: hire the highest total score.')];
   if (d.phase === 'reveal' && storage.get(seenKey()) !== true) { parts.push(wait('Tap the badge to see your role.')); return parts; }
 
-  const groupFile = html`<div class="folder"><span class="folder-tab">Private file: Group ${me.label}</span>
+  const groupFile = html`<div class="folder"><span class="folder-tab">Private file: Employer ${me.label}</span>
     <div class="folder-body">
-      <p class="folder-note">You know these scores. You cannot hire these employees.</p>
-      <ul class="files">${x.group.map((g) => html`<li>${idchip(g.label)}<span class="grow name">${g.name}</span>${grade(g.score)}</li>`)}</ul>
+      <p class="folder-note">You know these scores. You cannot hire these candidates.</p>
+      <ul class="files">${x.group.map((g) => html`<li>${idchip(g.label)}<span class="grow"><span class="name">${g.name}</span>${g.taken ? html`<span class="tag-row"><span class="tag">Hired by a rival</span></span>` : ''}</span>${grade(g.score)}</li>`)}</ul>
     </div></div>`;
   const receivedSlips = x.referralsReceived.length
     ? html`<div class="slips">${x.referralsReceived.map((r) => html`<div class="slip"><p class="slip-head">Recommendation from Employer ${r.from}</p>
@@ -511,94 +527,93 @@ function employerHome() {
 
   if (d.phase === 'reveal') {
     parts.push(html`<section class="stack"><h2>Your job</h2>
-      <p class="instruction">Finish with the highest combined score from your hires.</p>
-      <p>You will hire <strong>${plural(H, 'employee')}</strong> and must give <strong>${plural(H, 'referral')}</strong> to rival employers.</p></section>`);
+      <p class="instruction">Finish with the highest combined score from your ${plural(H, 'hire')}.</p>
+      <p>Your private file shows the true scores of ${plural(x.group.length, 'candidate')}, but you cannot hire them. To learn about anyone else, trade referrals with the other employers.</p></section>`);
     parts.push(groupFile);
     parts.push(wait('Waiting for the host to open networking.'));
   }
 
   if (d.phase === 'networking') {
-    const sent = x.referralsSent.length;
-    const left = H - sent;
-    const referred = new Set(x.referralsSent.map((r) => r.label));
-    const available = x.group.filter((g) => !referred.has(g.label));
-    let form = '';
-    if (left > 0) {
-      const pick = x.group.find((g) => g.label === S.ui.refEmployee && !referred.has(g.label));
-      const to = others(me.label).includes(S.ui.refTo) ? S.ui.refTo : '';
-      form = S.ui.confirmRef && pick && to
-        ? html`<div class="slip stack" role="alertdialog" aria-labelledby="ref-confirm-title">
-            <p class="slip-head" id="ref-confirm-title">Check the slip before you send it</p>
-            <p class="slip-body">Employer ${me.label} recommends <strong>${pick.label}, ${pick.name}</strong> to Employer ${to}. Candidate score: <strong>${pick.score}</strong>.</p>
-            <p class="small muted">Referrals cannot be edited or withdrawn.</p>
-            <div class="btn-row">
-              <button class="btn btn-secondary" data-act="ref-cancel" data-key="ref-cancel">Back</button>
-              <button class="btn btn-primary" data-act="ref-send" data-key="ref-send" ${disabled(S.busy)}>${S.busy ? 'Sending…' : 'Send referral'}</button>
-            </div>
-          </div>`
-        : html`<form class="stack" data-form="referral" novalidate>
-            <fieldset class="choices">
-              <legend>Who are you recommending?</legend>
-              ${available.map((g) => html`<label class="choice"><input type="radio" name="refEmployee" value="${g.label}" data-bind="refEmployee" ${g.label === S.ui.refEmployee ? new Raw('checked') : ''}>
-                <span>${idchip(g.label)}<span class="grow">${g.name}</span>${grade(g.score)}</span></label>`)}
-            </fieldset>
-            <fieldset class="choices">
-              <legend>Send it to</legend>
-              <div class="seg">${others(me.label).map((e) => html`<label class="choice"><input type="radio" name="refTo" value="${e}" data-bind="refTo" ${e === to ? new Raw('checked') : ''}>
-                <span>Employer ${e}</span></label>`)}</div>
-            </fieldset>
-            <button class="btn btn-primary" type="submit" data-key="ref-review" ${disabled(!pick || !to)}>Review referral</button>
-          </form>`;
-    }
+    const rivals = d.employers.filter((e) => e.label !== me.label);
+    const pick = x.group.find((g) => g.label === S.ui.refEmployee);
+    const already = new Set(x.referralsSent.filter((r) => r.label === S.ui.refEmployee).map((r) => r.to));
+    const targets = S.ui.refTargets.filter((t) => rivals.some((r) => r.label === t) && !already.has(t));
+    const form = S.ui.confirmRef && pick && targets.length
+      ? html`<div class="slip stack" role="alertdialog" aria-labelledby="ref-confirm-title">
+          <p class="slip-head" id="ref-confirm-title">Check the slip before you send it</p>
+          <p class="slip-body">Employer ${me.label} recommends <strong>${pick.label}, ${pick.name}</strong> to ${targets.length === 1 ? `Employer ${targets[0]}` : `Employers ${targets.join(', ')}`}. Candidate score: <strong>${pick.score}</strong>.</p>
+          <p class="small muted">Referrals cannot be edited or withdrawn.</p>
+          <div class="btn-row">
+            <button class="btn btn-secondary" data-act="ref-cancel" data-key="ref-cancel">Back</button>
+            <button class="btn btn-primary" data-act="ref-send" data-key="ref-send" ${disabled(S.busy)}>${S.busy ? 'Sending…' : targets.length === 1 ? 'Send referral' : `Send ${targets.length} referrals`}</button>
+          </div>
+        </div>`
+      : html`<form class="stack" data-form="referral" novalidate>
+          <fieldset class="choices">
+            <legend>1. Who are you recommending?</legend>
+            ${x.group.map((g) => html`<label class="choice"><input type="radio" name="refEmployee" value="${g.label}" data-bind="refEmployee" ${g.label === S.ui.refEmployee ? new Raw('checked') : ''}>
+              <span>${idchip(g.label)}<span class="grow">${g.name}</span>${grade(g.score)}</span></label>`)}
+          </fieldset>
+          <fieldset class="choices" ${pick ? '' : new Raw('disabled')}>
+            <legend>2. Send it to</legend>
+            ${pick ? html`<button type="button" class="linkish" data-act="ref-all" data-key="ref-all">Select every employer who has not had it yet</button>` : html`<p class="small muted">Choose a candidate first.</p>`}
+            <div class="seg">${rivals.map((e) => {
+              const sent = already.has(e.label);
+              return html`<label class="choice"><input type="checkbox" value="${e.label}" data-bind="refTargets" ${targets.includes(e.label) ? new Raw('checked') : ''} ${sent || !pick ? new Raw('disabled') : ''}>
+                <span><span class="grow">Employer ${e.label}<br><span class="small muted">${sent ? 'Already sent' : e.name}</span></span></span></label>`;
+            })}</div>
+          </fieldset>
+          <button class="btn btn-primary" type="submit" data-key="ref-review" ${disabled(!pick || !targets.length)}>${targets.length > 1 ? `Review ${targets.length} referrals` : 'Review referral'}</button>
+        </form>`;
     parts.push(html`<section class="stack">
-      <div class="section-title"><h2>Write a referral</h2><span class="count">${sent} of ${H} sent</span></div>
-      ${left > 0 ? html`<p class="muted">Send ${plural(left, 'more referral')}. Each must be a different person from your file. The slip shows their true score.</p>`
-        : html`<div class="notice notice-ok">${H === 1 ? 'Your referral is sent.' : `All ${H} referrals are sent.`}</div>`}
+      <div class="section-title"><h2>Write referrals</h2><span class="count">${x.referralsSent.length} sent</span></div>
+      <p class="muted">Send as many as you like, to anyone. Every slip carries the candidate's true score.</p>
       ${form}
     </section>`);
     parts.push(html`<section class="stack"><div class="section-title"><h2>Recommendations received</h2><span class="count">${x.referralsReceived.length}</span></div>${receivedSlips}</section>`);
-    parts.push(html`<div class="folds">${fold('sent', 'Referrals you sent', `${sent}`, sentSlips, sent > 0)}</div>`);
+    parts.push(html`<div class="folds">${fold('sent', 'Referrals you sent', `${x.referralsSent.length}`, sentSlips)}</div>`);
     parts.push(groupFile);
-    if (left === 0) parts.push(wait('Waiting for the host to open hiring.'));
   }
 
   if (d.phase === 'hiring') {
-    const pending = x.offers.filter((o) => o.status === 'pending');
-    const free = H - x.slotsUsed;
     const slots = [];
     x.hired.forEach((h) => slots.push(html`<div class="slot filled"><span class="slot-label">Filled</span>
       <span class="slot-state">${h.label}, ${h.name}</span>
       <span class="small">${h.score == null ? 'Score: awaiting reveal' : `Score ${h.score}`}</span></div>`));
-    pending.forEach((o) => slots.push(html`<div class="slot pending"><span class="slot-label">Offer pending</span>
-      <span class="slot-state">${o.label}, ${o.name}</span>
-      <button class="btn btn-secondary btn-small" data-act="withdraw" data-id="${o.id}" data-key="wd-${o.id}" ${disabled(S.busy)}>Withdraw</button></div>`));
-    for (let i = 0; i < free; i++) slots.push(html`<div class="slot"><span class="slot-label">Open position</span><span class="slot-state">Make an offer below</span></div>`);
+    for (let i = x.hired.length; i < H; i++) slots.push(html`<div class="slot"><span class="slot-label">Open position</span><span class="slot-state">Hire from the list below</span></div>`);
+    const full = x.hired.length >= H;
     parts.push(html`<section class="stack">
-      <div class="section-title"><h2>Job slots</h2><span class="count">${x.hired.length} of ${H} filled</span></div>
+      <div class="section-title"><h2>Your positions</h2><span class="count">${x.hired.length} of ${H} filled</span></div>
       <div class="slots">${slots}</div>
-      ${free === 0 && x.hired.length < H ? html`<p class="small muted">Every open slot is held by a pending offer. Withdraw one to offer someone else.</p>` : ''}
+      ${full ? html`<div class="notice notice-ok">All positions filled. Your score is revealed with the results.</div>` : ''}
     </section>`);
-    const cands = x.candidates.filter((c) => !c.hiredByMe);
+    const rank = (c) => (c.taken ? 2 : c.knownScore == null ? 1 : 0);
+    const list = x.candidates.filter((c) => !c.takenByMe)
+      .sort((a, b) => rank(a) - rank(b) || (b.knownScore ?? 0) - (a.knownScore ?? 0) || a.label.localeCompare(b.label, 'en', { numeric: true }));
+    const open = list.filter((c) => !c.taken).length;
     parts.push(html`<section class="stack">
-      <div class="section-title"><h2>Eligible candidates</h2><span class="count">${cands.filter((c) => !c.hired).length} available</span></div>
-      <ul class="ledger">${cands.map((c) => {
+      <div class="section-title"><h2>Candidate bank</h2><span class="count">${open} available</span></div>
+      <p class="small muted">Candidates you were recommended come first. Your own file is not listed. Without a referral, a score is a guess.</p>
+      <ul class="ledger">${list.map((c) => {
         const tags = [];
         if (c.referredBy) tags.push(html`<span class="tag tag-accent">Referred by ${c.referredBy}</span>`);
-        if (c.pendingOffer) tags.push(html`<span class="tag tag-warn">Your offer is pending</span>`);
-        if (c.hired) tags.push(html`<span class="tag">Hired elsewhere</span>`);
-        const canOffer = !c.hired && !c.pendingOffer && free > 0;
+        if (c.taken) tags.push(html`<span class="tag">Hired by a rival</span>`);
+        if (S.ui.confirmHire === c.label && !c.taken && !full) {
+          return html`<li class="confirm-row" role="alertdialog" aria-labelledby="hire-${c.label}">
+            <p id="hire-${c.label}"><strong>Hire ${c.label}, ${c.name}?</strong> ${c.knownScore == null ? 'Score unknown.' : `Score ${c.knownScore}.`} Hiring is final.</p>
+            <div class="btn-row">
+              <button class="btn btn-secondary btn-small" data-act="hire-cancel" data-key="hire-cancel">Back</button>
+              <button class="btn btn-primary btn-small" data-act="hire" data-candidate="${c.label}" data-key="hire-yes-${c.label}" ${disabled(S.busy)}>${S.busy ? 'Hiring…' : 'Hire'}</button>
+            </div></li>`;
+        }
         return html`<li>${idchip(c.label)}<span class="grow"><span class="name">${c.name}</span>${tags.length ? html`<span class="tag-row">${tags}</span>` : ''}</span>
-          ${c.hired ? '' : html`<span class="stack tight end">${grade(c.knownScore)}
-          <button class="btn btn-primary btn-small" data-act="offer" data-employee="${c.label}" data-key="offer-${c.label}" ${disabled(!canOffer || S.busy)}>Offer job</button></span>`}</li>`;
+          ${c.taken ? '' : html`<span class="stack tight end">${grade(c.knownScore)}
+          <button class="btn btn-primary btn-small" data-act="hire-ask" data-candidate="${c.label}" data-key="hire-${c.label}" ${disabled(full || S.busy)}>Hire</button></span>`}</li>`;
       })}</ul>
-      <p class="small muted">Your own group is not listed. Without a referral, a score is a guess.</p>
     </section>`);
-    const past = x.offers.filter((o) => o.status !== 'pending');
-    const label = { declined: 'Declined', withdrawn: 'Withdrawn', closed: 'Took another job', expired: 'Expired' };
     parts.push(html`<div class="folds">
       ${fold('received', 'Recommendations received', `${x.referralsReceived.length}`, receivedSlips)}
-      ${past.length ? fold('past-offers', 'Earlier offers', `${past.length}`, html`<ul class="files">${past.map((o) => html`<li>${idchip(o.label)}<span class="grow name">${o.name}</span><span class="tag">${label[o.status]}</span></li>`)}</ul>`) : ''}
-      ${fold('group', 'Private file: you cannot hire these', plural(x.group.length, 'person', 'people'), groupFile)}
+      ${fold('group', 'Private file: you cannot hire these', plural(x.group.length, 'candidate'), groupFile)}
     </div>`);
   }
 
@@ -610,78 +625,6 @@ function employerHome() {
     parts.push(summarySheet());
     if (d.phase === 'discussion') parts.push(discussionBlock());
     parts.push(html`<div class="folds">${fold('sent', 'Referrals you sent', `${x.referralsSent.length}`, sentSlips)}${fold('received', 'Recommendations received', `${x.referralsReceived.length}`, receivedSlips)}</div>`);
-  }
-  return parts;
-}
-
-function employeeHome() {
-  const d = S.data; const me = d.me; const x = d.employee;
-  const g = x.groupEmployer;
-  const parts = [idCard(me, 'Goal: get hired.')];
-  if (d.phase === 'reveal' && storage.get(seenKey()) !== true) { parts.push(wait('Tap the badge to see your role.')); return parts; }
-
-  const knows = html`<div class="folder"><span class="folder-tab plain">Who has your file</span><div class="folder-body stack tight">
-    <p class="instruction">Employer ${g.label}${g.name ? ` (${g.name})` : ''} knows your score.</p>
-    <p>Employer ${g.label} cannot hire you, but can refer you to Employer ${others(g.label).join(' or ')}. You do not know your own score.</p>
-  </div></div>`;
-  const referralStatus = x.referrals.length
-    ? html`<div class="slips">${x.referrals.map((r) => html`<div class="slip stamped"><p class="slip-head">From Employer ${r.from}</p>
-        <p class="slip-body">You were referred to <strong>Employer ${r.to}</strong>.</p><span class="stamp">REFERRED</span></div>`)}</div>`
-    : html`<p class="muted">No one has referred you yet.</p>`;
-
-  if (d.phase === 'reveal') {
-    parts.push(knows);
-    parts.push(wait('Waiting for the host to open networking.'));
-  }
-  if (d.phase === 'networking') {
-    parts.push(html`<section class="stack"><div class="section-title"><h2>Referral status</h2><span class="count">${x.referrals.length}</span></div>${referralStatus}
-      <p class="small muted">Referrals never show you your own score.</p></section>`);
-    parts.push(knows);
-    parts.push(wait('Hiring opens when the host is ready.'));
-  }
-  if (d.phase === 'hiring') {
-    if (x.job) {
-      parts.push(html`<article class="letter" aria-label="Your accepted job">
-        <div class="letterhead"><span class="seal">${x.job}</span><span><strong>Employer ${x.job}</strong><span>${employerName(x.job)}</span></span></div>
-        <p class="instruction">You accepted this offer. The job is yours and the decision is final.</p>
-        <div class="stamp-spot"><span class="stamp">HIRED</span></div></article>`);
-      parts.push(wait('Waiting for the host to close hiring.'));
-    } else {
-      const pending = x.offers.filter((o) => o.status === 'pending');
-      parts.push(html`<section class="stack"><div class="section-title"><h2>Job offers</h2><span class="count">${pending.length} open</span></div>
-        ${pending.length ? pending.map((o) => html`<article class="letter" aria-labelledby="off-${o.id}">
-          <div class="letterhead"><span class="seal">${o.from}</span><span><strong id="off-${o.id}">Offer from Employer ${o.from}</strong><span>${employerName(o.from)}</span></span></div>
-          ${S.ui.confirmAccept === o.id
-            ? html`<div role="alertdialog" aria-labelledby="acc-${o.id}" class="stack tight">
-                <p class="instruction" id="acc-${o.id}">Accept Employer ${o.from}'s offer?</p>
-                <p>Accepting is final. Your other offers will close.</p>
-                <div class="btn-row">
-                  <button class="btn btn-secondary" data-act="accept-cancel" data-key="acc-cancel">Back</button>
-                  <button class="btn btn-primary" data-act="accept" data-id="${o.id}" data-key="acc-yes-${o.id}" ${disabled(S.busy)}>${S.busy ? 'Accepting…' : 'Accept job'}</button>
-                </div></div>`
-            : html`<p>We would like you to join Employer ${o.from}. Accept to take the job, or decline to keep looking.</p>
-              <div class="btn-row">
-                <button class="btn btn-secondary" data-act="decline" data-id="${o.id}" data-key="dec-${o.id}" ${disabled(S.busy)}>Decline</button>
-                <button class="btn btn-primary" data-act="accept-ask" data-id="${o.id}" data-key="acc-${o.id}" ${disabled(S.busy)}>Accept</button>
-              </div>`}
-        </article>`) : wait(`No offers yet. Talk to Employer ${others(g.label).join(' and Employer ')}.`)}
-      </section>`);
-    }
-    const past = x.offers.filter((o) => o.status !== 'pending');
-    const label = { declined: 'You declined', withdrawn: 'Withdrawn', closed: 'Closed', expired: 'Expired' };
-    parts.push(html`<div class="folds">
-      ${past.length ? fold('past-offers', 'Earlier offers', `${past.length}`, html`<ul class="files">${past.map((o) => html`<li>${idchip(o.from)}<span class="grow">Employer ${o.from}</span><span class="tag">${label[o.status]}</span></li>`)}</ul>`) : ''}
-      ${fold('refs', 'Referral status', `${x.referrals.length}`, referralStatus)}
-    </div>`);
-  }
-  if (atLeast('results')) {
-    parts.push(html`<section class="stack" aria-label="Your result">
-      <div class="section-title"><h2>Your score</h2><span class="big-score">${x.score}</span></div>
-      ${x.job ? html`<div class="notice notice-ok">Hired by Employer ${x.job}. You reached your goal.</div>` : html`<div class="notice notice-warn">Not hired this round.</div>`}
-    </section>`);
-    parts.push(summarySheet());
-    if (d.phase === 'discussion') parts.push(discussionBlock());
-    parts.push(html`<div class="folds">${fold('refs', 'Referral status', `${x.referrals.length}`, referralStatus)}</div>`);
   }
   return parts;
 }
@@ -708,8 +651,7 @@ function playerView() {
       html`<section class="stack"><div class="section-title"><h2>Sign-in sheet</h2><span class="count">${d.setup.players} present</span></div>
         ${badgeList(d.lobby.names, d.me.name)}</section>`,
       html`<section class="stack">${setupBox(d.setup)}</section>`];
-  } else if (d.me.role === 'employer') body = employerHome();
-  else body = employeeHome();
+  } else body = employerHome();
   const head = d.me?.role ? html`<p class="instruction">${phaseInstruction()}</p>` : '';
   const roster = d.me?.role && d.phase !== 'reveal' ? html`<div class="folds">${rosterFold()}</div>` : '';
   return html`<div class="stack-lg">${head}${body}${roster}</div>`;
@@ -755,21 +697,22 @@ function hostView() {
         <button class="btn btn-secondary btn-small" data-act="remove" data-id="${m.id}" data-key="rm-${m.id}" aria-label="Remove ${m.name}" ${disabled(S.busy)}>Remove</button></li>`)}</ul></section>`
       : wait('Waiting for players to sign in.'));
   } else {
-    phaseBody.push(html`<p class="muted">${plural(players.length, 'player')}: 3 employers and ${d.setup.employees} employees. Each employer hires ${d.setup.hires} and gives ${plural(d.setup.hires, 'referral')}.</p>`);
+    phaseBody.push(html`<p class="muted">${plural(players.length, 'employer')} and ${plural(d.setup.bank, 'candidate')} in the bank. Each employer knows ${d.setup.groupSize} scores and hires ${d.setup.hires}.</p>`);
   }
   if (d.phase === 'reveal') phaseBody.push(wait('Players are reading their badges. Open networking when the room is ready.'));
-  const progress = (key, label) => html`<div class="progress-rows">${h.progress.map((p) => html`<div class="progress-row">${idchip(p.employer)}
-    <span class="bar" aria-hidden="true"><i data-pct="${Math.round((p[key] / d.setup.hires) * 100)}"></i></span>
-    <span class="count">${p[key]} of ${d.setup.hires}${key === 'filled' && p.pending ? `, ${p.pending} pending` : ''}${p[key] >= d.setup.hires ? ' done' : ''}</span></div>`)}</div>`;
+
+  const progressList = (mode) => html`<ul class="ledger">${h.progress.map((p) => html`<li>${idchip(p.employer)}
+    <span class="grow"><span class="name">${p.name}</span>
+      ${mode === 'hiring' ? html`<span class="bar" aria-hidden="true"><i data-pct="${Math.round((p.filled / d.setup.hires) * 100)}"></i></span>` : ''}</span>
+    <span class="count">${mode === 'hiring' ? `${p.filled} of ${d.setup.hires} hired` : `${p.referralsSent} sent, ${p.referralsReceived} received`}</span></li>`)}</ul>`;
   if (d.phase === 'networking') {
-    phaseBody.push(html`<section class="stack"><div class="section-title"><h2>Referrals sent</h2></div>${progress('referralsSent')}</section>`);
+    const total = h.referrals.length;
+    phaseBody.push(html`<section class="stack"><div class="section-title"><h2>Referrals</h2><span class="count">${plural(total, 'slip')} so far</span></div>
+      <p class="small muted">Referrals are optional and unlimited. Open hiring whenever the room is ready.</p>${progressList('networking')}</section>`);
   }
   if (d.phase === 'hiring') {
-    const pending = h.offers.filter((o) => o.status === 'pending');
-    phaseBody.push(html`<section class="stack"><div class="section-title"><h2>Positions filled</h2></div>${progress('filled')}</section>`);
-    afterPrimary.push(html`<div class="folds">${fold('pending', 'Outstanding offers', `${pending.length}`, pending.length
-      ? html`<ul class="files">${pending.map((o) => html`<li>${idchip(o.employer)}<span class="grow">to <strong>${o.label}</strong> ${o.name}</span><span class="tag tag-warn">Pending</span></li>`)}</ul>`
-      : html`<p class="muted">No offers waiting for an answer.</p>`, pending.length > 0)}</div>`);
+    const filled = h.progress.reduce((s, p) => s + p.filled, 0);
+    phaseBody.push(html`<section class="stack"><div class="section-title"><h2>Positions filled</h2><span class="count">${filled} of ${h.progress.length * d.setup.hires}</span></div>${progressList('hiring')}</section>`);
   }
   if (atLeast('results')) {
     phaseBody.push(summarySheet());
@@ -777,14 +720,14 @@ function hostView() {
   }
 
   let primary = '';
-  // Live warnings, so the panel updates if players finish while the host is deciding.
+  // Live warnings, so the panel updates if employers finish while the host is deciding.
   const confirm = S.ui.confirmAdvance && S.ui.confirmAdvance.from === d.phase ? { ...S.ui.confirmAdvance, warnings: h.warnings } : null;
   if (nextLabel) {
     primary = confirm
       ? html`<div class="slip stack" role="alertdialog" aria-labelledby="adv-title">
-          <h3 id="adv-title">${confirm.warnings.length ? 'Some paperwork is unfinished' : `${nextLabel}?`}</h3>
+          <h3 id="adv-title">${confirm.warnings.length ? 'Some positions are still open' : `${nextLabel}?`}</h3>
           ${confirm.warnings.length ? html`<ul class="bullets">${confirm.warnings.map((w) => html`<li>${w}</li>`)}</ul>` : ''}
-          ${d.phase === 'hiring' ? html`<p class="muted">Pending offers will expire and the results will be shown to everyone. This cannot be undone.</p>` : html`<p class="muted">You can stay in ${d.phaseName.toLowerCase()} or continue anyway.</p>`}
+          ${d.phase === 'hiring' ? html`<p class="muted">Hiring will close and the results will be shown to everyone. This cannot be undone.</p>` : html`<p class="muted">You can stay in ${d.phaseName.toLowerCase()} or continue anyway.</p>`}
           <div class="btn-row">
             <button class="btn btn-secondary" data-act="advance-cancel" data-key="adv-cancel">Stay in ${d.phaseName.toLowerCase()}</button>
             <button class="btn btn-primary" data-act="advance-confirm" data-key="adv-confirm" ${disabled(S.busy)}>${d.phase === 'hiring' ? 'Reveal results' : 'Continue anyway'}</button>
@@ -795,22 +738,23 @@ function hostView() {
         </div>`;
   }
 
-  const priv = d.phase === 'lobby' ? '' : fold('private', 'Private: assignments and scores', 'Host only', html`<div class="stack">
+  const priv = d.phase === 'lobby' ? '' : fold('private', 'Private: files, scores and hires', 'Host only', html`<div class="stack">
     <p class="small muted">Keep this section off the projector.</p>
-    ${['A', 'B', 'C'].map((e) => {
-      const emp = h.members.find((m) => m.role === 'employer' && m.label === e);
-      const group = h.members.filter((m) => m.role === 'employee' && m.group === e).sort((a, b) => a.label.localeCompare(b.label, 'en', { numeric: true }));
-      return html`<div class="folder"><span class="folder-tab">Employer ${e}: ${emp?.name}${h.preview ? `, ${h.preview.totals.find((t) => t.employer === e).total} pts` : ''}</span><div class="folder-body">
-        <ul class="files">${group.map((m) => html`<li>${idchip(m.label)}<span class="grow"><span class="name">${m.name}</span>${m.hiredBy ? html`<span class="tag-row"><span class="tag tag-ok">Hired by ${m.hiredBy}</span></span>` : ''}</span>${grade(m.score)}</li>`)}</ul></div></div>`;
+    ${h.progress.map((p) => {
+      const file = h.bank.filter((c) => c.group === p.employer);
+      const hires = h.bank.filter((c) => c.hiredBy === p.employer);
+      const pts = hires.reduce((s, c) => s + c.score, 0);
+      return html`<div class="folder"><span class="folder-tab">Employer ${p.employer}: ${p.name}, ${pts} pts</span><div class="folder-body">
+        <p class="small"><strong>Hired:</strong> ${hires.length ? hires.map((c) => `${c.label} ${c.name} (${c.score})`).join(', ') : 'nobody yet'}</p>
+        <ul class="files">${file.map((c) => html`<li>${idchip(c.label)}<span class="grow"><span class="name">${c.name}</span>${c.hiredBy ? html`<span class="tag-row"><span class="tag tag-ok">Hired by ${c.hiredBy}</span></span>` : ''}</span>${grade(c.score)}</li>`)}</ul></div></div>`;
     })}
     ${h.referrals.length ? html`<div class="stack tight"><h3>Referrals</h3><ul class="files">${h.referrals.map((r) => html`<li>${idchip(r.from)}<span class="grow">${r.label} ${r.name} to Employer ${r.to}</span>${grade(r.score)}</li>`)}</ul></div>` : ''}
-    ${h.preview && !atLeast('results') ? html`<p class="small muted">Current totals preview: ${h.preview.totals.map((t) => `${t.employer} ${t.total}`).join(', ')}. Players cannot see this.</p>` : ''}
   </div>`);
 
   const people = fold('people', 'Players and rejoin codes', plural(h.members.length, 'person', 'people'), html`<div class="stack">
     <p class="small muted">If someone switches phones or browsers, give them a rejoin code. It works once and expires in 15 minutes.</p>
     <ul class="ledger">${h.members.map((m) => html`<li><span class="grow"><span class="name">${m.name}</span>
-      <span class="tag-row">${m.spectator ? html`<span class="tag">Observer</span>` : m.label ? html`<span class="tag">${m.role === 'employer' ? 'Employer' : 'Employee'} ${m.label}</span>` : ''}
+      <span class="tag-row">${m.spectator ? html`<span class="tag">Observer</span>` : m.label ? html`<span class="tag">Employer ${m.label}</span>` : ''}
       ${S.ui.rejoin[m.id] ? html`<span class="tag tag-warn">Code: <span class="mono">${S.ui.rejoin[m.id]}</span></span>` : ''}</span></span>
       <span class="row tight">
       <button class="btn btn-secondary btn-small" data-act="rejoin" data-id="${m.id}" data-key="rj-${m.id}" ${disabled(S.busy)}>Rejoin code</button>
@@ -820,7 +764,7 @@ function hostView() {
   </div>`);
 
   const resetPanel = fold('reset', d.phase === 'discussion' ? 'Play again' : 'Reset game', null, S.ui.confirmReset
-    ? html`<div class="stack"><p><strong>Reset the game?</strong> Roles, referrals, offers and results will be erased. Everyone goes back to the lobby, and observers become players.</p>
+    ? html`<div class="stack"><p><strong>Reset the game?</strong> Roles, the candidate bank, referrals, hires and results will be erased. Everyone goes back to the lobby, and observers become players.</p>
         <div class="btn-row"><button class="btn btn-secondary" data-act="reset-cancel" data-key="reset-cancel">Keep playing</button>
         <button class="btn btn-danger" data-act="reset-confirm" data-key="reset-confirm" ${disabled(S.busy)}>Reset everything</button></div></div>`
     : html`<div class="stack"><p class="muted">Start over with everyone currently in the room.</p>
@@ -842,38 +786,36 @@ function hostView() {
 // ---------- rules: the office handbook ----------
 function rulesView() {
   const s = S.data?.setup;
-  const H = s?.ready ? s.hires : null;
-  const n = (word) => (H ? plural(H, word) : `the room's number of ${word}s`);
+  const ready = !!s?.ready;
   return html`<div class="stack-lg handbook">
     <section class="stack">
       <p class="clause">Employee handbook, rev. Q4</p>
       <h1>Rules</h1>
-      <p class="lede">Talk in person. Use your phone to see your role, send referrals and answer job offers.</p>
-      ${H ? html`<div class="limit-box"><div><strong>${H}</strong>${H === 1 ? 'hire' : 'hires'} per employer</div><div><strong>${H}</strong>${H === 1 ? 'referral' : 'referrals'} per employer</div></div>`
-          : html`<p class="muted">Each employer hires 1 employee for every 5 employees in the room (at least 1), and gives the same number of referrals.</p>`}
+      <p class="lede">Talk in person. Use your phone to read your private file, send referrals and hire.</p>
+      ${ready ? html`<div class="limit-box"><div><strong>${s.hires}</strong>hires per employer</div><div><strong>${s.groupSize}</strong>candidates in your private file</div><div><strong>${s.bank}</strong>candidates in the bank</div></div>`
+          : html`<p class="muted">The bank holds 4 candidates per player. Each employer privately knows 4 of them and hires 2.</p>`}
     </section>
     <section class="stack">
-      <h2>Goals</h2>
+      <h2>Goal</h2>
       <ul>
-        <li><strong>Employers</strong> want the highest combined score from their hires. Nothing else counts.</li>
-        <li><strong>Employees</strong> want to get hired.</li>
+        <li>Every player is an employer. Finish with the <strong>highest combined score</strong> from your hires. Nothing else counts.</li>
       </ul>
     </section>
     <section class="stack">
       <h2>Confidential information</h2>
       <ul>
-        <li>There are three employers: A, B and C. Everyone else is an employee.</li>
-        <li>Every employee has a secret score from 1 to 10. Employees do not know their own score.</li>
-        <li>Each employer holds the file for one group of employees and <strong>cannot hire anyone in that group</strong>.</li>
+        <li>The candidate bank is run by the computer. Every candidate has a secret score from 1 to 10.</li>
+        <li>You hold the private file for a few candidates and know their true scores, but you <strong>cannot hire anyone in your own file</strong>.</li>
+        <li>Everyone else's scores are hidden unless another employer refers them to you.</li>
       </ul>
     </section>
     <section class="stack">
       <h2>How the day goes</h2>
       <ol>
-        <li><strong>Role reveal.</strong> Tap your badge to see your role.</li>
-        <li><strong>Networking.</strong> Each employer must send ${n('referral')}, each about a different person in their file, to either rival employer. A referral shows the person's true score and cannot be changed or taken back.</li>
-        <li><strong>Hiring.</strong> Each employer fills ${n('position')}. Employers make offers; employees accept or decline. A pending offer holds a position. Accepting is final.</li>
-        <li><strong>Results.</strong> An employer's score is the total of their hires' scores. Empty positions score zero. Highest total wins; ties share the win.</li>
+        <li><strong>Role reveal.</strong> Tap your badge and read your private file.</li>
+        <li><strong>Networking.</strong> Send as many referrals as you like, to any other employer, about candidates in your file. Each referral shows the candidate's true score and cannot be changed or taken back. Referrals are optional.</li>
+        <li><strong>Hiring.</strong> Tap Hire on any available candidate outside your file. First come, first served. Each employer fills ${ready ? plural(s.hires, 'position') : '2 positions'}, and a hire is final.</li>
+        <li><strong>Results.</strong> Your score is the total of your hires' scores. Empty positions score zero. Highest total wins; ties share the win.</li>
         <li><strong>Debrief.</strong> Talk about what happened.</li>
       </ol>
     </section>
@@ -881,7 +823,7 @@ function rulesView() {
       <h2>Good to know</h2>
       <ul>
         <li>Deals happen out loud. There is no chat in the app.</li>
-        <li>A referral does not guarantee a job. Employers can hire someone without one, but then the score is a guess.</li>
+        <li>A referral helps a rival as much as it helps you. Decide who you trust, and what you want in return.</li>
         <li>The host decides when each phase starts and ends. There is no timer.</li>
       </ul>
     </section>
@@ -946,7 +888,10 @@ function render() {
   for (const t of document.querySelectorAll('.tab')) {
     if (t.dataset.nav === S.tab) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
   }
-  document.title = page === 'landing' ? 'The Referral Rush' : `${S.tab === 'rules' ? 'Rules' : page === 'host' ? 'Host' : 'Play'}, room ${S.route.code}: The Referral Rush`;
+  // On the player's own device the tab title names their seat, which helps when switching between tabs.
+  const seat = d?.me?.label ? `Employer ${d.me.label} (${d.me.name})` : d?.me ? d.me.name : 'Play';
+  document.title = page === 'landing' ? 'The Referral Rush'
+    : `${S.tab === 'rules' ? 'Rules' : page === 'host' ? 'Host' : seat}, room ${S.route.code}: The Referral Rush`;
 }
 
 // ---------- events ----------
@@ -961,7 +906,13 @@ document.addEventListener('input', (e) => {
 });
 document.addEventListener('change', (e) => {
   const k = e.target.dataset?.bind;
-  if (k === 'refEmployee' || k === 'refTo') { S.ui[k] = e.target.value; render(); }
+  if (k === 'refEmployee') { S.ui.refEmployee = e.target.value; S.ui.refTargets = []; render(); }
+  if (k === 'refTargets') {
+    const set = new Set(S.ui.refTargets);
+    if (e.target.checked) set.add(e.target.value); else set.delete(e.target.value);
+    S.ui.refTargets = [...set];
+    render();
+  }
 });
 document.addEventListener('toggle', (e) => {
   const key = e.target.dataset?.fold;
@@ -1039,30 +990,23 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'ref-cancel': S.ui.confirmRef = false; render(); break;
-    case 'ref-send': {
-      const pick = S.data.employer?.group.find((g) => g.label === S.ui.refEmployee);
-      const sentTo = S.ui.refTo;
-      const r = await playerAct('referral', { employee: S.ui.refEmployee, to: sentTo }, { quiet: !reducedMotion() });
-      S.ui.confirmRef = false;
-      // Celebrate only once the server has confirmed it, and never for a replayed request.
-      if (r?.ok && !r.replayed && pick) showFlash('referred', { from: S.data.me.label, to: sentTo, label: pick.label, name: pick.name });
-      if (r?.ok) { S.ui.refEmployee = ''; }
+    case 'ref-all': {
+      const sent = new Set(S.data.employer.referralsSent.filter((r) => r.label === S.ui.refEmployee).map((r) => r.to));
+      S.ui.refTargets = S.data.employers.map((x) => x.label).filter((l) => l !== S.data.me.label && !sent.has(l));
       render();
       break;
     }
-    case 'offer': playerAct('offer', { employee: el.dataset.employee }); break;
-    case 'withdraw': playerAct('withdraw', { offerId: id }); break;
-    case 'accept-ask': S.ui.confirmAccept = id; render(); break;
-    case 'accept-cancel': S.ui.confirmAccept = ''; render(); break;
-    case 'accept': {
-      const from = S.data.employee?.offers.find((o) => o.id === id)?.from;
-      const r = await playerAct('accept', { offerId: id }, { quiet: !reducedMotion() });
-      S.ui.confirmAccept = '';
-      if (r?.ok && !r.replayed && from) showFlash('hired', { employer: from });
+    case 'ref-send': sendReferrals(); break;
+    case 'hire-ask': S.ui.confirmHire = el.dataset.candidate; render(); break;
+    case 'hire-cancel': S.ui.confirmHire = ''; render(); break;
+    case 'hire': {
+      const label = el.dataset.candidate;
+      const r = await playerAct('hire', { candidate: label }, { quiet: !reducedMotion() });
+      S.ui.confirmHire = '';
+      if (r?.ok && !r.replayed) showFlash('hired', { employer: S.data.me.label, label: r.candidate, name: r.name });
       render();
       break;
     }
-    case 'decline': playerAct('decline', { offerId: id }); break;
     case 'copy': copy(el.dataset.text); break;
     case 'advance': {
       const d = S.data;

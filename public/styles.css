@@ -436,6 +436,10 @@ details.fold > .fold-body { padding: 4px 2px 18px; }
 .choice input:checked + span::after { content: "Selected"; font-size: var(--fs-sm); font-weight: 700; }
 .choice input:focus-visible + span { outline: 3px solid var(--rust); outline-offset: 2px; }
 .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.choice input:disabled + span { opacity: .55; }
+.choices[disabled] .choice > span { opacity: .55; }
+.linkish { align-self: flex-start; min-height: 44px; padding: 8px 0; border: 0; background: none; color: var(--forest); font-weight: 700; text-decoration: underline; cursor: pointer; }
+.ledger > li.confirm-row { flex-direction: column; align-items: stretch; gap: 8px; background: var(--sheet); padding: 12px; border: 2px solid var(--ink); }
 .seg .choice > span { justify-content: center; }
 .seg .choice input:checked + span::after { content: none; }
 
@@ -507,7 +511,7 @@ details.fold > .fold-body { padding: 4px 2px 18px; }
 .flash.out { animation: memo-out var(--t-med) ease-in both; }
 .flash .slip, .flash .letter { box-shadow: var(--lift); }
 .flash .stamp-spot { display: flex; justify-content: flex-end; margin-top: 6px; }
-.flash .stamp { font-size: 1.5rem; animation-delay: 150ms; }
+.flash .stamp { position: static; margin-top: 0; font-size: 1.5rem; animation-delay: 150ms; }
 @keyframes flash-in { from { opacity: 0; transform: translate(-50%, 40px) rotate(3deg); } to { opacity: 1; transform: translateX(-50%); } }
 
 .confetti { position: absolute; top: -20px; width: 10px; height: 14px; border: 1.5px solid var(--ink); animation: fall 1.4s cubic-bezier(.3, .6, .5, 1) forwards; }
