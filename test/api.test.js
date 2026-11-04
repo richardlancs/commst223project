@@ -344,7 +344,10 @@ test('scoring: sum of hires, highest wins, ties share; private scores stay priva
   // D still sees only its own file's scores: no hire scores of other employers
   const seen = scorePairs(pub).map(([l]) => l);
   assert.ok(seen.every((l) => groupOf(g, 'D').some((c) => c.label === l)));
-  assert.deepEqual(scorePairs((await new Client(srv.base).state(g.code)).body), []);
+  const projector = (await new Client(srv.base).state(g.code)).body;
+  assert.deepEqual(scorePairs(projector), [], 'the projector screen gets no candidate scores');
+  assert.deepEqual(projector.results.winners, ['A', 'B']);
+  assert.deepEqual(projector.results.totals.map((t) => t.total), [10, 10, 7, 0]);
   assert.equal((await advance(g.host, g.code)).status, 200);
   assert.equal((await advance(g.host, g.code)).status, 409, 'nothing after discussion');
 });
@@ -382,7 +385,7 @@ test('live updates carry only a version number and require a session', async () 
 
 test('static pages, security headers, rate limiting and reset', async () => {
   const c = new Client(srv.base);
-  for (const path of ['/', '/join/ABCD', '/room/ABCD', '/host/ABCD', '/rules']) {
+  for (const path of ['/', '/join/ABCD', '/room/ABCD', '/host/ABCD', '/display/ABCD', '/rules']) {
     const r = await c.get(path);
     assert.equal(r.status, 200, path);
     assert.match(r.headers.get('content-security-policy'), /default-src 'self'/);

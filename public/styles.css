@@ -278,6 +278,9 @@ main.landing-main { background: transparent; border: 0; box-shadow: none; }
 }
 .badge-inner { position: absolute; inset: 0; transform-style: preserve-3d; transition: transform var(--t-slow) var(--ease-out); }
 .badge[aria-pressed="true"] .badge-inner { transform: rotateY(180deg); }
+/* roles are shown outright: the badge front is displayed without a flip */
+.badge.badge-static { cursor: default; }
+.badge-static .badge-front { transform: none; }
 .badge-face {
   position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden;
   display: flex; flex-direction: column; align-items: center; overflow: hidden;
@@ -482,6 +485,60 @@ details.fold > .fold-body { padding: 4px 2px 18px; }
 .tally .total { font-family: var(--display); font-size: 1.8rem; line-height: 1; min-width: 2ch; text-align: right; }
 .tally .stamp { font-size: .8rem; margin-top: 4px; }
 .big-score { font-family: var(--display); font-size: 3rem; line-height: 1; }
+
+/* ---------- the winner: an office award plaque ---------- */
+.plaque {
+  position: relative; padding: 14px; background: var(--forest);
+  border: 3px solid var(--ink); border-radius: 10px; box-shadow: var(--lift);
+}
+.plaque .plate {
+  position: relative; padding: 24px 20px 22px; text-align: center;
+  background: var(--mustard); border: 2px solid var(--ink); border-radius: 4px;
+  box-shadow: inset 0 0 0 6px var(--mustard), inset 0 0 0 8px rgba(37, 56, 47, .45);
+}
+.plaque .plate::before, .plaque .plate::after { /* screws */
+  content: ""; position: absolute; top: 12px; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--sheet); border: 2px solid var(--ink);
+}
+.plaque .plate::before { left: 12px; }
+.plaque .plate::after { right: 12px; }
+.plaque-kicker { font-weight: 700; font-size: var(--fs-sm); }
+.plaque-name { margin: 6px 0 2px; font-family: var(--display); font-size: clamp(2rem, 9vw, 2.8rem); line-height: 1.05; overflow-wrap: anywhere; }
+.plaque-role { font-family: var(--mono); font-weight: 600; }
+.plaque-title { margin-top: 10px; font-family: var(--display); font-size: var(--fs-xl); }
+.plaque-score { margin-top: 4px; font-weight: 700; font-size: var(--fs-lg); }
+.plaque-score strong { font-family: var(--display); font-weight: 400; font-size: 2.2rem; vertical-align: -4px; }
+.plaque-stamp { position: absolute; right: -8px; bottom: -14px; font-size: 1.1rem; background: var(--sheet); mix-blend-mode: normal; }
+a.btn { text-align: center; }
+
+/* ---------- projector display ---------- */
+body.display-mode .topbar, body.display-mode .tabbar { display: none; }
+body.display-mode main { width: min(100% - 40px, 1100px); min-height: 100dvh; margin: 0 auto; padding: 48px 20px 120px; background: transparent; border: 0; box-shadow: none; }
+.display-wait { display: flex; flex-direction: column; align-items: center; gap: 22px; padding-top: 6vh; text-align: center; }
+.display-wait h1 { font-size: clamp(2.4rem, 6vw, 4rem); }
+.display-wait .lede { max-width: 40ch; font-size: clamp(1.1rem, 2.2vw, 1.5rem); color: var(--ink); }
+.display-wait .wait { max-width: 520px; font-size: 1.2rem; }
+.display-results { display: flex; flex-direction: column; align-items: center; gap: 36px; padding-top: 2vh; }
+.plaque.big { width: min(100%, 760px); padding: 22px; transform: rotate(-1deg); }
+.plaque.big .plate { padding: 40px 28px 36px; }
+.plaque.big .plaque-kicker { font-size: clamp(1rem, 1.8vw, 1.3rem); }
+.plaque.big .plaque-name { font-size: clamp(3rem, 8vw, 5.6rem); }
+.plaque.big .plaque-role { font-size: clamp(1.1rem, 2vw, 1.5rem); }
+.plaque.big .plaque-title { font-size: clamp(1.6rem, 3vw, 2.4rem); }
+.plaque.big .plaque-score { font-size: clamp(1.2rem, 2vw, 1.6rem); }
+.plaque.big .plaque-score strong { font-size: clamp(3rem, 6vw, 4.4rem); }
+.plaque.big .plaque-stamp { font-size: clamp(1.4rem, 2.6vw, 2rem); right: -18px; bottom: -22px; }
+.runners { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; }
+.certificate {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 190px; max-width: 260px;
+  padding: 18px 18px 16px; background: var(--sheet); border: 2px solid var(--ink); border-radius: var(--r-paper); box-shadow: var(--lift-sm); text-align: center;
+}
+.certificate:nth-child(odd) { transform: rotate(1.2deg); }
+.certificate:nth-child(even) { transform: rotate(-1.2deg); }
+.cert-place { font-family: var(--display); font-size: 1.3rem; }
+.cert-name { font-family: var(--display); font-size: 1.5rem; line-height: 1.1; overflow-wrap: anywhere; }
+.cert-score { font-weight: 700; }
+.display-foot { font-weight: 600; color: var(--ink-soft); }
 
 /* ---------- handbook (rules) ---------- */
 .handbook section { padding-top: 14px; border-top: 2px solid var(--ink); }

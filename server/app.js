@@ -116,7 +116,7 @@ export function createApp({ dbFile = ':memory:', publicUrl = process.env.PUBLIC_
   }
 
   function serveStatic(req, res, pathname) {
-    const spa = pathname === '/' || /^\/(join|room|host)\/[A-Za-z]{4}\/?$/.test(pathname) || pathname === '/rules';
+    const spa = pathname === '/' || /^\/(join|room|host|display)\/[A-Za-z]{4}\/?$/.test(pathname) || pathname === '/rules';
     const rel = spa ? 'index.html' : pathname.slice(1);
     const file = path.normalize(path.join(PUBLIC_DIR, rel));
     if (!file.startsWith(PUBLIC_DIR + path.sep)) return send(res, 404, { error: 'Not found' });

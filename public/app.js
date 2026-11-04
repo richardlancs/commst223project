@@ -38,9 +38,10 @@ let seenNames = new Set();
 let seenNamesKey = '';
 
 function parseRoute(path) {
-  const m = /^\/(join|room|host)\/([A-Za-z]{4})\/?$/.exec(path);
+  const m = /^\/(join|room|host|display)\/([A-Za-z]{4})\/?$/.exec(path);
   if (!m) return { page: 'landing' };
-  return { page: m[1] === 'host' ? 'host' : 'room', code: m[2].toUpperCase() };
+  const page = m[1] === 'host' ? 'host' : m[1] === 'display' ? 'display' : 'room';
+  return { page, code: m[2].toUpperCase() };
 }
 
 function go(path, replace = false) {
@@ -99,10 +100,8 @@ async function load() {
   try {
     S.data = await api(`/api/rooms/${code}/${page === 'host' ? 'host/state' : 'state'}`);
     S.loadError = null;
-    if (S.data.viewer !== 'none') {
-      connectEvents(code);
-      storage.set('rr_last', { code, as: page === 'host' ? 'host' : 'player' });
-    }
+    if (S.data.viewer !== 'none') connectEvents(code);
+    if (S.data.viewer !== 'none' && page !== 'display') storage.set('rr_last', { code, as: page === 'host' ? 'host' : 'player' });
     if (page === 'room' && location.pathname.startsWith('/join/') && S.data.viewer !== 'none') {
       history.replaceState({}, '', `/room/${code}`);
     }
@@ -164,7 +163,9 @@ function start() {
   render();
   load();
   // Safety net in case a live connection silently drops (phones sleeping, flaky Wi-Fi).
-  pollTimer = setInterval(() => { if (S.route.page !== 'landing' && document.visibilityState === 'visible') load(); }, 15000);
+  // The projector display may have no session (no live stream), so it checks every few seconds.
+  const every = S.route.page === 'display' ? 3000 : 15000;
+  pollTimer = setInterval(() => { if (S.route.page !== 'landing' && document.visibilityState === 'visible') load(); }, every);
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.route.page !== 'landing') load(); });
 
@@ -259,7 +260,7 @@ const $fx = document.getElementById('fx');
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const MEMOS = {
   lobby: 'New round. Everyone back to the lobby.',
-  reveal: 'Your assignments are ready. Tap your badge.',
+  reveal: 'Your assignments are ready. Check your badge.',
   networking: 'Networking is open. Talk, trade and refer.',
   hiring: 'Hiring is open. Offers can now be made and answered.',
   results: 'The hiring results are in.',
@@ -321,8 +322,8 @@ const PHASE_SHORT = ['Lobby', 'Roles', 'Network', 'Hiring', 'Results', 'Debrief'
 const atLeast = (phase) => S.data && phaseOrder.indexOf(S.data.phase) >= phaseOrder.indexOf(phase);
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const disabled = (cond) => (cond ? new Raw('disabled') : '');
+const ordinal = (n) => `${n}${[, 'st', 'nd', 'rd'][(n % 100 >> 3 ^ 1) && n % 10] || 'th'}`;
 const employerName = (label) => S.data?.employers?.find((e) => e.label === label)?.name || '';
-const seenKey = () => `rr_seen_${S.data.code}_${S.data.round}`;
 
 function fold(key, title, meta, body, defaultOpen = false) {
   const open = S.ui.open.has(key) || (defaultOpen && !S.ui.open.has(`!${key}`));
@@ -467,7 +468,7 @@ function joinView() {
 function phaseInstruction() {
   return {
     lobby: 'Waiting for the host to assign roles.',
-    reveal: 'Tap your badge, then study your private file.',
+    reveal: 'Read your badge, then study your private file.',
     networking: 'Trade referrals and negotiate in person.',
     hiring: 'Hire the best candidates before someone else does.',
     results: 'The hiring results are in.',
@@ -476,18 +477,11 @@ function phaseInstruction() {
 }
 
 function idCard(me, objective) {
-  const seen = storage.get(seenKey()) === true;
   if (S.data.phase === 'reveal') {
     return html`<div class="badge-wrap">
-      <button class="badge" data-act="flip" data-key="badge" aria-pressed="${seen ? 'true' : 'false'}"
-        aria-label="${seen ? `Your role: Employer ${me.label}. ${objective}` : 'Tap to reveal your role'}">
+      <div class="badge badge-static" role="img" aria-label="Your role: Employer ${me.label}, ${me.name}. ${objective}">
         <span class="badge-inner">
-          <span class="badge-face badge-back" aria-hidden="${seen ? 'true' : 'false'}">
-            <span class="seal">Referral Rush Inc.</span>
-            <span class="hint">Tap to reveal your role</span>
-            <span class="small">Keep your screen to yourself</span>
-          </span>
-          <span class="badge-face badge-front" aria-hidden="${seen ? 'false' : 'true'}">
+          <span class="badge-face badge-front">
             <span class="band">Referral Rush Inc. staff ID</span>
             <span class="body">
               <span class="badge-role">Employer</span>
@@ -497,7 +491,7 @@ function idCard(me, objective) {
             <span class="badge-foot">${objective}</span>
           </span>
         </span>
-      </button>
+      </div>
     </div>`;
   }
   return html`<div class="id-strip">
@@ -509,7 +503,6 @@ function idCard(me, objective) {
 function employerHome() {
   const d = S.data; const me = d.me; const x = d.employer; const H = x.hires;
   const parts = [idCard(me, 'Goal: hire the highest total score.')];
-  if (d.phase === 'reveal' && storage.get(seenKey()) !== true) { parts.push(wait('Tap the badge to see your role.')); return parts; }
 
   const groupFile = html`<div class="folder"><span class="folder-tab">Private file: Employer ${me.label}</span>
     <div class="folder-body">
@@ -618,6 +611,7 @@ function employerHome() {
   }
 
   if (atLeast('results')) {
+    parts.push(winnerPlaque());
     parts.push(html`<section class="stack" aria-label="Your result">
       <div class="section-title"><h2>Your total</h2><span class="big-score">${x.myTotal}</span></div>
       ${x.hired.length ? html`<ul class="files">${x.hired.map((h) => html`<li>${idchip(h.label)}<span class="grow name">${h.name}</span>${grade(h.score)}</li>`)}</ul>` : html`<p class="muted">You did not hire anyone. Empty positions score zero.</p>`}
@@ -633,7 +627,7 @@ function spectatorHome() {
   const d = S.data;
   const parts = [html`<section class="stack">${sign(d.code)}<h1>You're observing</h1>
     <p class="muted">You signed in after roles were assigned, so you see public updates only. The host can add you as a player after a reset.</p></section>`];
-  if (d.results) parts.push(summarySheet());
+  if (d.results) { parts.push(winnerPlaque()); parts.push(summarySheet()); }
   else parts.push(wait(`${d.phaseName} is under way. Waiting for the host.`));
   if (d.phase === 'discussion') parts.push(discussionBlock());
   parts.push(html`<div class="folds">${rosterFold()}</div>`);
@@ -657,6 +651,49 @@ function playerView() {
   return html`<div class="stack-lg">${head}${body}${roster}</div>`;
 }
 
+// ---------- the winner: an office award plaque ----------
+function winnerPlaque({ big = false } = {}) {
+  const r = S.data.results;
+  if (!r) return '';
+  const winners = r.totals.filter((t) => r.winners.includes(t.employer));
+  const tie = winners.length > 1;
+  const best = winners[0]?.total ?? 0;
+  const names = winners.map((w) => w.name);
+  const nameLine = names.length > 2 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names.join(' and ');
+  return html`<section class="plaque${big ? ' big' : ''}" aria-labelledby="plaque-name">
+    <div class="plate">
+      <p class="plaque-kicker">Referral Rush Inc. ${tie ? 'jointly honours' : 'honours'}</p>
+      <p class="plaque-name" id="plaque-name">${nameLine}</p>
+      <p class="plaque-role">${tie ? `Employers ${winners.map((w) => w.employer).join(', ')}` : `Employer ${winners[0].employer}`}</p>
+      <p class="plaque-title">${tie ? 'Recruiters of the Round' : 'Recruiter of the Round'}</p>
+      <p class="plaque-score"><strong>${best}</strong> ${best === 1 ? 'point' : 'points'}${tie ? ' each' : ''}</p>
+    </div>
+    <span class="stamp plaque-stamp">${tie ? 'SHARED WIN' : 'TOP RECRUITER'}</span>
+  </section>`;
+}
+
+// Projector page: public information only (names, totals, winner). No navigation.
+function displayView() {
+  const d = S.data;
+  if (!d.results) {
+    return html`<div class="display-wait">
+      ${sign(d.code, true)}
+      <h1>${d.phase === 'lobby' ? 'Join the game' : d.phaseName}</h1>
+      <p class="lede">${d.phase === 'lobby' ? `Go to the join link and enter room code ${d.code}.` : 'The winner will appear here when the host reveals the results.'}</p>
+      ${wait(d.phase === 'lobby' ? `${plural(d.setup.players, 'player')} signed in so far.` : 'Hiring is in progress. Results soon.')}
+    </div>`;
+  }
+  const r = d.results;
+  const runnersUp = r.totals.filter((t) => !r.winners.includes(t.employer)).slice(0, 3);
+  return html`<div class="display-results">
+    ${winnerPlaque({ big: true })}
+    ${runnersUp.length ? html`<ol class="runners" aria-label="Runners-up">${runnersUp.map((t) => html`<li class="certificate">
+      <span class="cert-place">${ordinal(1 + r.totals.filter((o) => o.total > t.total).length)} place</span>
+      <span class="idchip">${t.employer}</span><span class="cert-name">${t.name}</span><span class="cert-score">${plural(t.total, 'point')}</span></li>`)}</ol>` : ''}
+    <p class="display-foot">Room ${d.code}. ${plural(r.totals.length, 'employer')} competed.</p>
+  </div>`;
+}
+
 // ---------- host: meeting control board ----------
 function hostView() {
   const d = S.data; const h = d.host;
@@ -669,6 +706,7 @@ function hostView() {
       <p class="join-url">${h.joinUrl.replace(/^https?:\/\//, '')}</p>
       <button class="btn btn-secondary btn-small" data-act="copy" data-text="${h.joinUrl}" data-key="copy-join">Copy join link</button>
     </div>
+    <a class="btn btn-secondary btn-small" href="/display/${d.code}" target="_blank" rel="noopener" data-key="open-display-side">Open projector screen</a>
     ${/\/\/(localhost|127\.0\.0\.1)/.test(h.joinUrl) ? html`<div class="notice notice-warn">Phones cannot open "localhost". Open this page from the computer's network address.</div>` : ''}
     <div class="folds">${fold('hostlink', 'Run the game from another device', null, html`<div class="stack">
       <p class="small muted">Anyone with this private link can control the game. Keep it off the projector.</p>
@@ -715,6 +753,8 @@ function hostView() {
     phaseBody.push(html`<section class="stack"><div class="section-title"><h2>Positions filled</h2><span class="count">${filled} of ${h.progress.length * d.setup.hires}</span></div>${progressList('hiring')}</section>`);
   }
   if (atLeast('results')) {
+    phaseBody.push(winnerPlaque());
+    phaseBody.push(html`<a class="btn btn-accent" href="/display/${d.code}" target="_blank" rel="noopener" data-key="open-display">Open winner screen for the projector</a>`);
     phaseBody.push(summarySheet());
     if (d.phase === 'discussion') phaseBody.push(discussionBlock());
   }
@@ -812,7 +852,7 @@ function rulesView() {
     <section class="stack">
       <h2>How the day goes</h2>
       <ol>
-        <li><strong>Role reveal.</strong> Tap your badge and read your private file.</li>
+        <li><strong>Role reveal.</strong> Read your badge and your private file.</li>
         <li><strong>Networking.</strong> Send as many referrals as you like, to any other employer, about candidates in your file. Each referral shows the candidate's true score and cannot be changed or taken back. Referrals are optional.</li>
         <li><strong>Hiring.</strong> Tap Hire on any available candidate outside your file. First come, first served. Each employer fills ${ready ? plural(s.hires, 'position') : '2 positions'}, and a hire is final.</li>
         <li><strong>Results.</strong> Your score is the total of your hires' scores. Empty positions score zero. Highest total wins; ties share the win.</li>
@@ -852,8 +892,10 @@ function render() {
   else if (S.loadError && !S.data) out = errorView();
   else if (!S.data) out = html`<p class="muted center-pad">Opening the office…</p>`;
   else if (page === 'host') out = hostView();
+  else if (page === 'display') out = displayView();
   else out = playerView();
   const str = String(out);
+  document.body.classList.toggle('display-mode', page === 'display');
 
   const hostHome = page === 'host' && S.tab === 'home' && !!S.data && !S.loadError;
   $main.classList.toggle('wide', hostHome);
@@ -891,7 +933,7 @@ function render() {
   // On the player's own device the tab title names their seat, which helps when switching between tabs.
   const seat = d?.me?.label ? `Employer ${d.me.label} (${d.me.name})` : d?.me ? d.me.name : 'Play';
   document.title = page === 'landing' ? 'The Referral Rush'
-    : `${S.tab === 'rules' ? 'Rules' : page === 'host' ? 'Host' : seat}, room ${S.route.code}: The Referral Rush`;
+    : `${S.tab === 'rules' ? 'Rules' : page === 'host' ? 'Host' : page === 'display' ? 'Winner screen' : seat}, room ${S.route.code}: The Referral Rush`;
 }
 
 // ---------- events ----------
@@ -983,12 +1025,6 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'retry': load(); break;
-    case 'flip': {
-      // The badge flips once; it only reveals what this player's own state already contains.
-      storage.set(seenKey(), true);
-      render();
-      break;
-    }
     case 'ref-cancel': S.ui.confirmRef = false; render(); break;
     case 'ref-all': {
       const sent = new Set(S.data.employer.referralsSent.filter((r) => r.label === S.ui.refEmployee).map((r) => r.to));
