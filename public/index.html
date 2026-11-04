@@ -3,24 +3,122 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#EEF0F6" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#14162B" media="(prefers-color-scheme: dark)">
-  <meta name="description" content="A phone-based classroom game about referrals, trust and hiring.">
+  <meta name="theme-color" content="#C4D0B5">
+  <meta name="description" content="A phone-based classroom party game about referrals, favours and hiring. Great connections. Questionable motives.">
   <title>The Referral Rush</title>
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,600;0,700;1,600&display=swap">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
+
+  <!-- Office illustration: one flat, front-on style, 3px ink outline, palette fills. Decorative only. -->
+  <svg class="sprite" width="0" height="0" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="sym-window" viewBox="0 0 200 180">
+        <g stroke="#25382F" stroke-width="3" stroke-linejoin="round">
+          <rect x="8" y="6" width="184" height="152" rx="2" fill="#FBF6EA"/>
+          <rect x="20" y="18" width="160" height="128" fill="#E1E8D6"/>
+          <circle cx="146" cy="96" r="12" fill="#E6B85A" stroke-width="2"/>
+          <path d="M20 146v-36h22v-22h18v58M70 146v-50h28v50M108 146v-28h20v-26h22v54M156 146v-40h24v40" fill="#C4D0B5" stroke-width="2"/>
+          <path d="M100 18v128M20 84h160" fill="none" stroke-width="4"/>
+          <rect x="20" y="18" width="160" height="46" fill="#E6B85A"/>
+          <path d="M20 30h160M20 42h160M20 54h160" fill="none" stroke-width="2"/>
+          <path d="M166 64v28" fill="none" stroke-width="2"/>
+          <circle cx="166" cy="96" r="4" fill="#E16C3A" stroke-width="2"/>
+          <rect x="2" y="156" width="196" height="14" rx="2" fill="#FBF6EA"/>
+        </g>
+      </symbol>
+      <symbol id="sym-board" viewBox="0 0 260 180">
+        <g stroke="#25382F" stroke-width="3" stroke-linejoin="round">
+          <rect x="4" y="4" width="252" height="164" rx="3" fill="#1F3D35"/>
+          <rect x="16" y="16" width="228" height="140" fill="#D9A953"/>
+          <g transform="rotate(-3 66 70)">
+            <rect x="30" y="28" width="72" height="84" fill="#FBF6EA"/>
+            <path d="M52 42h28v12H52zM38 76h22v10H38zM72 76h22v10H72zM66 54v10M49 64h34v12" fill="none" stroke-width="2"/>
+          </g>
+          <g transform="rotate(4 142 58)">
+            <rect x="114" y="30" width="56" height="56" fill="#E6B85A"/>
+            <path d="M122 46h38M122 56h30M122 66h36" fill="none" stroke-width="2"/>
+          </g>
+          <g transform="rotate(-2 208 62)">
+            <rect x="182" y="26" width="52" height="72" fill="#C4D0B5"/>
+            <path d="M190 42h36M190 52h28M190 62h34M190 72h20" fill="none" stroke-width="2"/>
+          </g>
+          <g transform="rotate(-6 140 120)">
+            <rect x="116" y="100" width="50" height="42" fill="#E16C3A"/>
+            <path d="M124 114h32M124 124h24" fill="none" stroke-width="2"/>
+          </g>
+          <g transform="rotate(3 206 126)">
+            <rect x="178" y="108" width="58" height="38" fill="#FBF6EA"/>
+            <text x="207" y="132" text-anchor="middle" font-family="Alfa Slab One, Georgia, serif" font-size="11" fill="#A9441D" stroke="none">HIRING!</text>
+          </g>
+          <circle cx="66" cy="32" r="5" fill="#E16C3A" stroke-width="2"/>
+          <circle cx="142" cy="33" r="5" fill="#1F3D35" stroke-width="2"/>
+          <circle cx="208" cy="29" r="5" fill="#E16C3A" stroke-width="2"/>
+          <circle cx="141" cy="103" r="5" fill="#FBF6EA" stroke-width="2"/>
+          <circle cx="207" cy="111" r="5" fill="#1F3D35" stroke-width="2"/>
+        </g>
+      </symbol>
+      <symbol id="sym-cabinet" viewBox="0 0 120 210">
+        <g stroke="#25382F" stroke-width="3" stroke-linejoin="round">
+          <rect x="6" y="4" width="108" height="206" rx="3" fill="#9FB28E"/>
+          <rect x="14" y="14" width="92" height="58" rx="2" fill="#B4C3A3"/>
+          <rect x="14" y="80" width="92" height="58" rx="2" fill="#B4C3A3"/>
+          <rect x="14" y="146" width="92" height="58" rx="2" fill="#B4C3A3"/>
+          <rect x="48" y="22" width="24" height="14" fill="#FBF6EA" stroke-width="2"/>
+          <rect x="48" y="88" width="24" height="14" fill="#FBF6EA" stroke-width="2"/>
+          <rect x="48" y="154" width="24" height="14" fill="#FBF6EA" stroke-width="2"/>
+          <rect x="42" y="48" width="36" height="8" rx="4" fill="#25382F"/>
+          <rect x="42" y="114" width="36" height="8" rx="4" fill="#25382F"/>
+          <rect x="42" y="180" width="36" height="8" rx="4" fill="#25382F"/>
+        </g>
+      </symbol>
+      <symbol id="sym-plant" viewBox="0 0 100 150">
+        <g stroke="#25382F" stroke-width="3" stroke-linejoin="round">
+          <path d="M48 102C40 72 38 40 46 8C56 38 58 72 54 102Z" fill="#3F6B52"/>
+          <path d="M44 104C30 82 18 60 12 34C30 52 42 76 52 102Z" fill="#5E8A68"/>
+          <path d="M56 104C70 84 82 62 90 38C74 56 62 78 50 102Z" fill="#3F6B52"/>
+          <path d="M50 104C42 90 36 76 30 64C42 74 48 86 56 102Z" fill="#5E8A68"/>
+          <path d="M24 104h52l-7 42H31z" fill="#E16C3A"/>
+          <rect x="18" y="98" width="64" height="12" rx="2" fill="#E16C3A"/>
+        </g>
+      </symbol>
+      <symbol id="sym-lamp" viewBox="0 0 140 170">
+        <path d="M30 76L2 170h86L58 80z" fill="#E6B85A" opacity=".22"/>
+        <g stroke="#25382F" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+          <path d="M96 150L114 90L70 50" fill="none" stroke-width="7"/>
+          <path d="M72 168v-8c0-8 6-12 22-12s22 4 22 12v8z" fill="#1F3D35"/>
+          <path d="M70 50L44 30L20 68L56 82Z" fill="#E6B85A"/>
+          <circle cx="36" cy="78" r="7" fill="#FBF6EA"/>
+          <circle cx="114" cy="90" r="6" fill="#E16C3A"/>
+          <circle cx="70" cy="50" r="6" fill="#E16C3A"/>
+        </g>
+      </symbol>
+    </defs>
+  </svg>
+  <div class="office" aria-hidden="true">
+    <svg class="o-window" viewBox="0 0 200 180"><use href="#sym-window"/></svg>
+    <svg class="o-board" viewBox="0 0 260 180"><use href="#sym-board"/></svg>
+    <svg class="o-cabinet" viewBox="0 0 120 210"><use href="#sym-cabinet"/></svg>
+    <svg class="o-plant" viewBox="0 0 100 150"><use href="#sym-plant"/></svg>
+    <svg class="o-lamp" viewBox="0 0 140 170"><use href="#sym-lamp"/></svg>
+    <svg class="o-mug" viewBox="0 0 60 80">
+      <g class="steam" fill="none" stroke="#25382F" stroke-width="2" stroke-linecap="round"><path d="M22 28c-4-6 4-10 0-16"/><path d="M34 28c-4-6 4-10 0-16"/></g>
+      <g stroke="#25382F" stroke-width="3" stroke-linejoin="round"><path d="M10 36h36v32a8 8 0 0 1-8 8H18a8 8 0 0 1-8-8z" fill="#FBF6EA"/><path d="M46 44h4a8 8 0 0 1 0 16h-4" fill="none"/><path d="M10 48h36v10H10z" fill="#E16C3A"/></g>
+    </svg>
+    <div class="o-desk"></div>
+  </div>
+
   <header class="topbar">
     <span class="brand" id="brand">Referral Rush</span>
     <span class="topbar-right" id="topbar-right"></span>
   </header>
   <main id="main" tabindex="-1">
-    <p class="muted center-pad">Loading…</p>
+    <p class="muted center-pad">Opening the office…</p>
   </main>
   <nav class="tabbar" aria-label="Game navigation">
     <button type="button" class="tab" data-nav="home" aria-current="page">
@@ -28,11 +126,13 @@
       <span>Home</span>
     </button>
     <button type="button" class="tab" data-nav="rules">
-      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 3.5h9.5L19 7v13.5H6zM9 10h7M9 13.5h7M9 17h4.5"/></svg>
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4.5h11a3 3 0 0 1 3 3V20H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11M9 8.5h6"/></svg>
       <span>Rules</span>
     </button>
   </nav>
+  <div class="fx" id="fx" aria-hidden="true"></div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="visually-hidden" id="announcer" role="status" aria-live="polite"></div>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

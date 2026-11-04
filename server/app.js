@@ -187,7 +187,7 @@ export function createApp({ dbFile = ':memory:', publicUrl = process.env.PUBLIC_
       }
       if (sub === 'qr.svg') {
         if (!sessionFor(req, code).room) throw new GameError(404, 'no_room', 'No game with that room code.');
-        const svg = await QRCode.toString(`${origin(req)}/join/${code}`, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#1A1C33', light: '#FFFFFF' } });
+        const svg = await QRCode.toString(`${origin(req)}/join/${code}`, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#25382F', light: '#FBF6EA' } });
         res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
         return res.end(svg);
       }
