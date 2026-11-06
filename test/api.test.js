@@ -391,6 +391,11 @@ test('static pages, security headers, rate limiting and reset', async () => {
     assert.match(r.headers.get('content-security-policy'), /default-src 'self'/);
   }
   assert.equal((await c.get('/%2e%2e/server/game.js')).status, 404);
+  const room = await newRoom(srv.base);
+  const jar = [...room.host.cookies].map(([k, v]) => `${k}=${v}`).join('; ');
+  const badCookie = await fetch(`${srv.base}/api/rooms/${room.code}/host/state`, { headers: { cookie: `other=%E0%A4%A; ${jar}` } });
+  assert.equal(badCookie.status, 200, 'a malformed unrelated cookie must not break the request');
+  assert.equal((await badCookie.json()).viewer, 'host');
   const limited = await startServer({ rateLimits: true });
   try {
     const { code } = await newRoom(limited.base);

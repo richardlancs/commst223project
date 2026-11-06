@@ -76,7 +76,9 @@ export function createApp({ dbFile = ':memory:', publicUrl = process.env.PUBLIC_
     const out = {};
     for (const part of String(req.headers.cookie || '').split(';')) {
       const i = part.indexOf('=');
-      if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+      if (i <= 0) continue;
+      // Another site on the same host can set a cookie with bad %-encoding; skip it instead of failing the request.
+      try { out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim()); } catch { /* ignore */ }
     }
     return out;
   }
