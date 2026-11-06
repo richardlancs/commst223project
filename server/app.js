@@ -64,8 +64,9 @@ export function createApp({ dbFile = ':memory:', publicUrl = process.env.PUBLIC_
     if (publicUrl) return publicUrl.replace(/\/$/, '');
     const host = String(req.headers.host || 'localhost');
     const proto = isHttps(req) ? 'https' : 'http';
-    const [hostname, port] = host.split(':');
-    if (['localhost', '127.0.0.1', '::1', '[::1]'].includes(hostname)) {
+    let hostname = host, port = '';
+    try { ({ hostname, port } = new URL(`http://${host}`)); } catch { /* keep raw host */ }
+    if (['localhost', '127.0.0.1', '[::1]'].includes(hostname)) {
       const lan = lanAddresses()[0];
       if (lan) return `${proto}://${lan}${port ? `:${port}` : ''}`;
     }
