@@ -12,3 +12,12 @@ server.listen(port, '0.0.0.0', () => {
   console.log(`  This computer:  http://localhost:${port}`);
   for (const ip of lanAddresses()) console.log(`  Same Wi-Fi:     http://${ip}:${port}`);
 });
+
+// Hosts send SIGTERM on redeploy. Drop open live-update streams so close() finishes and the database is closed cleanly.
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.once(signal, () => {
+    console.log(`Received ${signal}, shutting down.`);
+    server.close(() => process.exit(0));
+    server.closeAllConnections();
+  });
+}
