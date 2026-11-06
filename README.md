@@ -61,7 +61,6 @@ Notes:
 - **Networking:** referrals are optional and unlimited. An employer can refer any candidate from their file to any other employer (one slip can go to several employers at once). The server attaches the true score; referrals cannot be edited or withdrawn, and the same candidate can't be sent to the same employer twice.
 - **Hiring:** each employer fills **2 positions**. Tapping Hire on an available candidate outside your file hires them instantly, first come first served, and the hire is final. Simultaneous attempts on one candidate produce exactly one winner.
 - **Scoring:** an employer's score is the sum of their hires' scores; empty positions score 0. The highest total wins, and ties share the win. Before results, hire scores stay hidden unless a referral revealed them; afterwards everyone sees employer totals, each employer sees their own hires' scores, and individual scores are never published to everyone.
-- The host is warned about open positions before closing hiring.
 
 ## Security model
 
@@ -84,7 +83,7 @@ All rules run on the server. The browser only displays what the server sends to 
 - **Concurrency and replays:** 14 simultaneous attempts on one candidate produce exactly one hire; a burst of 10 hires by one employer produces exactly 2; replayed referrals, hires and phase changes are not applied twice.
 - **Phase races:** a hire racing "close hiring" either lands before results or fails, never after.
 - **Results:** exact totals, a two-way tie, sorting, and visibility rules after the reveal.
-- **Sessions and plumbing:** refresh, single-use rejoin codes that revoke the old session, host-only endpoints, live-update stream, security headers, path traversal, rate limiting, reset, and database triggers that block invalid writes even when app code is bypassed.
+- **Sessions and plumbing:** refresh, single-use rejoin codes that revoke the old session, host-only endpoints, live-update stream, security headers, malformed cookies, path traversal, rate limiting, clean shutdown on SIGTERM, reset, and database triggers that block invalid writes even when app code is bypassed.
 
 **Manual browser check** (Chrome, one host and three employers in separate tabs): role reveal and private file, a referral sent to two employers with one confirmation, instant hiring with the HIRED stamp, a rival's attempt on the same candidate rejected, the close-hiring warning, and results where one strong hire beat two weaker ones.
 
